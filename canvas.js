@@ -1,11 +1,12 @@
 $(function(){
-  var LOW = 64;
+  var LOW = 16;
   var HIGH = 96;
+  var FACTOR = 1;//8;
   var SIZE = 500;
   var MAX_DISTANCE = Math.sqrt(SIZE * SIZE);
   
-  var gradientX = 0; //SIZE / 2;
-  var gradientY = 0; //SIZE / 2;
+  var gradientX = SIZE / 2;
+  var gradientY = SIZE / 2;
   
   // Distance of the given point from the center of the gradient.
   var distance = function(x, y){
@@ -31,6 +32,9 @@ $(function(){
     return function(px){
       var c = f(x, y);
       
+      // Make bands more visible.
+      c *= FACTOR;
+      
       px.r = c;
       px.g = c;
       px.b = c;
@@ -51,7 +55,7 @@ $(function(){
   var error = function(x, y){
     var c = color(x, y);
     var result = Math.round(c);
-    return c - result;
+    return result - c;
   };
   
   var totalError = function(x, y, neighborhood){
@@ -63,7 +67,42 @@ $(function(){
     });
     return total;
   };
+  
+  
+  var memory = {};
+  
+  var memoryTotalError = function(x, y, neighborhood){
+    var total = 0;
+    _.forEach(_.range(x - neighborhood, x + neighborhood + 1), function(dx){
+      _.forEach(_.range(y - neighborhood, y + neighborhood + 1), function(dy){
+        total += get(dx, dy) - color(x, y);
+      });
+    });
     
+    var size = 2 * neighborhood + 1;
+    return total / (size * size);
+  };
+  
+  var clear = function(){
+    memory = {};
+  };
+  
+  var set = function(x, y, v){
+    memory[y * SIZE + x] = v;
+  };
+  
+  var get = function(x, y){
+    var r = memory[y * SIZE + x];
+    if(_.isUndefined(r)){
+      return color(x, y);
+    }
+    return r;
+  };
+  
+  var update = function(x, y, e, f){
+    memory[y * SIZE + x] = get(x, y) + e * f;
+  };
+  
   var methods = {
     round: function(x, y){
       var c = color(x, y);
@@ -92,20 +131,44 @@ $(function(){
       }
       return floorC;
     },
-    
+    lessNoisyBiasedRandom: function(x, y){
+      var c = color(x, y);
+      var floorC = Math.floor(c);
+      var rounding = c - floorC;
+      if(Math.random() < rounding){
+        floorC += 1;
+      }
+      floorC += 1 - Math.floor(Math.random() * 3);
+      return floorC;
+    },
+    noisyBiasedRandom: function(x, y){
+      var c = color(x, y);
+      var floorC = Math.floor(c);
+      var rounding = c - floorC;
+      if(Math.random() < rounding){
+        floorC += 1;
+      }
+      floorC += 2 - Math.floor(Math.random() * 5);
+      return floorC;
+    },
+    lessNoisy: function(x, y){
+      var c = color(x, y);
+      c += 0.25 - 0.5 * Math.random();
+      return Math.round(c);
+    },
     noisy: function(x, y){
       var c = color(x, y);
-      c += 1 - 2 * Math.random();
+      c += 0.5 - Math.random();
       return Math.round(c);
     },
     noisier: function(x, y){
       var c = color(x, y);
-      c += 2 - 4 * Math.random();
+      c += 1 - 2 * Math.random();
       return Math.round(c);
     },
     noisiest: function(x, y){
       var c = color(x, y);
-      c += 4 - 8 * Math.random();
+      c += 2 - 4 * Math.random();
       return Math.round(c);
     },
     
@@ -131,10 +194,10 @@ $(function(){
         error(x + 1, y) +
         error(x, y - 1) +
         error(x, y + 1) +
-        error(x - 1, y - 1) +
-        error(x - 1, y + 1) +
-        error(x + 1, y - 1) +
-        error(x + 1, y + 1);
+        error(x - 2, y - 2) +
+        error(x - 2, y + 2) +
+        error(x + 2, y - 2) +
+        error(x + 2, y + 2);
       
       var c = color(x, y);
       c = Math.floor(c);
@@ -145,36 +208,90 @@ $(function(){
       
       return c;
     },
-    neighborhood2: function(x, y){
-      var e = totalError(x, y, 2);
+    neighborhood1: function(x, y){
+      var n = 1;
+      var e = totalError(x, y, n);
       var c = color(x, y);
-      c = Math.floor(c);
       
-      if(e < 0){
-        c += 1
-      }
+      c -= e;
       
-      return c;
+      return Math.round(c);
+    },
+    neighborhood2: function(x, y){
+      var n = 2;
+      var e = totalError(x, y, n);
+      var c = color(x, y);
+      
+      c -= e;
+      
+      return Math.round(c);
     },
     neighborhood3: function(x, y){
-      var e = totalError(x, y, 3);
+      var n = 3;
+      var e = totalError(x, y, n);
       var c = color(x, y);
-      c = Math.floor(c);
       
-      if(e < 0){
-        c += 1
-      }
+      c -= e;
       
-      return c;
+      return Math.round(c);
     },
     neighborhood4: function(x, y){
-      var e = totalError(x, y, 4);
+      var n = 4;
+      var count = (2 * n + 1) * (2 * n + 1);
+      var e = totalError(x, y, n);
       var c = color(x, y);
-      c = Math.floor(c);
       
-      if(e < 0){
-        c += 1
-      }
+      c -= e;
+      
+      return Math.round(c);
+    },
+    memory2: function(x, y){
+      var e = memoryTotalError(x, y, 2);
+      var c = color(x, y);
+      
+      c -= e;
+      
+      var finalColor = Math.round(c);
+      set(x, y, finalColor - c); 
+      return finalColor;
+    },
+    memory3: function(x, y){
+      var e = memoryTotalError(x, y, 3);
+      var c = color(x, y);
+      c -= e;
+      
+      var finalColor = Math.round(c);
+      set(x, y, finalColor - c); 
+      return finalColor;
+    },
+    floyd: function(x, y){
+      var oldC = get(x, y);
+      var c = Math.round(oldC);
+      var e = oldC - c;
+      update(x + 1, y, e, 7/16);
+      update(x - 1, y + 1, e, 3/16);
+      update(x, y + 1, e, 5/16);
+      update(x + 1, y + 1, e, 1/16);
+      return c;
+    },
+    jarvis: function(x, y){
+      var oldC = get(x, y);
+      var c = Math.round(oldC);
+      var e = oldC - c;
+      update(x + 1, y, e, 7/48);
+      update(x + 2, y, e, 5/48);
+      
+      update(x - 2, y + 1, e, 3/48);
+      update(x - 1, y + 1, e, 5/48);
+      update(x, y + 1, e, 7/48);
+      update(x + 1, y + 1, e, 5/48);
+      update(x + 2, y + 1, e, 3/48);
+      
+      update(x - 2, y + 2, e, 1/48);
+      update(x - 1, y + 2, e, 3/48);
+      update(x, y + 2, e, 5/48);
+      update(x + 1, y + 2, e, 3/48);
+      update(x + 2, y + 2, e, 1/48);
       
       return c;
     }
@@ -189,6 +306,17 @@ $(function(){
       var $canvas = $('<canvas width="' + SIZE + '" height="' + SIZE + '"></canvas>');
       $test.append('<h1>' + name + '</h1>');
       $test.append($canvas);
+      
+      var $link = $('<a href="#">Save...</a>');
+      $link.click(function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        var data = $canvas.getCanvasImage("png");
+        var w = window.open('about:blank');
+        w.document.write('<img src="' + data + '" />');
+      });
+      $test.append($link);
+      
       $container.append($test);
     });
     $body.append($container)
@@ -197,6 +325,9 @@ $(function(){
   var drawGradients = function(){
     _.forEach(methods, function(fn, name){
       var $canvas = $('.test.' + name + ' canvas');
+      
+      clear();
+      
       $canvas.setPixels({
         each: gradient(fn)
       });
@@ -206,8 +337,11 @@ $(function(){
   addCanvases(['round', 'truncate']);
   addCanvases(['random', 'biasedRandom']);
   addCanvases(['noisy', 'noisier', 'noisiest']);
-  addCanvases(['neighbors4', 'neighbors8']);
-  //addGradients(['neighborhood2', 'neighborhood3', 'neighborhood4']);
+  addCanvases(['lessNoisyBiasedRandom', 'noisyBiasedRandom']);
+  //addCanvases(['neighbors4', 'neighbors8']);
+  //addCanvases(['neighborhood2', 'neighborhood3']);
+  //addCanvases(['memory2', 'memory3']);
+  //addCanvases(['floyd', 'jarvis']);
   
   drawGradients();
 
