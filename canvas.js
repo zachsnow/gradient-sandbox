@@ -1,12 +1,20 @@
 $(function(){
-  var LOW = 16;
-  var HIGH = 96;
-  var FACTOR = 1;//8;
-  var SIZE = 500;
+  // Default to a square gradient of the following size.
+  var SIZE = 250;
   var MAX_DISTANCE = Math.sqrt(SIZE * SIZE);
   
+  // Move these around to position the center (darkest part)
+  // of the radial gradient.
   var gradientX = SIZE / 2;
   var gradientY = SIZE / 2;
+  
+  // Make these closer together to limit the number of colors available
+  // to the gradient.
+  var LOW = 8;
+  var HIGH = 24;
+  
+  // Make this larger to make the available shades more visibly distinct.
+  var FACTOR = 10;
   
   // Distance of the given point from the center of the gradient.
   var distance = function(x, y){
@@ -24,22 +32,25 @@ $(function(){
     return interpolate(distance(x, y));
   };
   
-  // Convert an `each` callback to one that also receives
-  // the `x` and `y` coordinates of the pixel being set.
+  // Converts a gradient function expecting a point (`x` and `y` coordinates) and
+  // returning a gray value (1 - 255) into a callback suitable for use with jCanvas's
+  // `setPixles` `each` argument. 
   var gradient = function(f){
     var x = 0;
     var y = 0;
     return function(px){
       var c = f(x, y);
       
-      // Make bands more visible.
+      // Make banding more visible.
       c *= FACTOR;
       
+      // Treat as a neutral gray.
       px.r = c;
       px.g = c;
       px.b = c;
       px.a = 255;
       
+      // Keep track of position, since jCanvas doesn't.
       x += 1;
       if(x >= SIZE){
         x = 0;
@@ -58,20 +69,18 @@ $(function(){
     return result - c;
   };
   
-  var totalError = function(x, y, neighborhood){
+  var averageError = function(x, y, neighborhood){
     var total = 0;
     _.forEach(_.range(x - neighborhood, x + neighborhood + 1), function(dx){
       _.forEach(_.range(y - neighborhood, y + neighborhood + 1), function(dy){
         total += error(dx, dy)
       });
     });
-    return total;
+    var size = 2 * neighborhood + 1;
+    return total / (size * size);
   };
   
-  
-  var memory = {};
-  
-  var memoryTotalError = function(x, y, neighborhood){
+  var memoryAverageError = function(x, y, neighborhood){
     var total = 0;
     _.forEach(_.range(x - neighborhood, x + neighborhood + 1), function(dx){
       _.forEach(_.range(y - neighborhood, y + neighborhood + 1), function(dy){
@@ -83,24 +92,30 @@ $(function(){
     return total / (size * size);
   };
   
+  var memory = {};
+  
+  var loc = function(x, y){
+    return y * SIZE + x;
+  };
+  
   var clear = function(){
     memory = {};
   };
   
-  var set = function(x, y, v){
-    memory[y * SIZE + x] = v;
-  };
-  
   var get = function(x, y){
-    var r = memory[y * SIZE + x];
+    var r = memory[loc(x, y)];
     if(_.isUndefined(r)){
       return color(x, y);
     }
     return r;
   };
   
-  var update = function(x, y, e, f){
-    memory[y * SIZE + x] = get(x, y) + e * f;
+  var set = function(x, y, v){
+    memory[loc(x, y)] = v;
+  };
+  
+  var add = function(x, y, e){
+    memory[loc(x, y)] = get(x, y) + e;
   };
   
   var methods = {
@@ -131,16 +146,6 @@ $(function(){
       }
       return floorC;
     },
-    lessNoisyBiasedRandom: function(x, y){
-      var c = color(x, y);
-      var floorC = Math.floor(c);
-      var rounding = c - floorC;
-      if(Math.random() < rounding){
-        floorC += 1;
-      }
-      floorC += 1 - Math.floor(Math.random() * 3);
-      return floorC;
-    },
     noisyBiasedRandom: function(x, y){
       var c = color(x, y);
       var floorC = Math.floor(c);
@@ -148,7 +153,21 @@ $(function(){
       if(Math.random() < rounding){
         floorC += 1;
       }
-      floorC += 2 - Math.floor(Math.random() * 5);
+      if(Math.random() < 0.1){
+        floorC += 1 - Math.floor(Math.random() * 3);
+      }
+      return floorC;
+    },
+    noisiestBiasedRandom: function(x, y){
+      var c = color(x, y);
+      var floorC = Math.floor(c);
+      var rounding = c - floorC;
+      if(Math.random() < rounding){
+        floorC += 1;
+      }
+      if(Math.random() < 0.1){
+        floorC += 2 - Math.floor(Math.random() * 5);
+      }
       return floorC;
     },
     lessNoisy: function(x, y){
@@ -209,89 +228,101 @@ $(function(){
       return c;
     },
     neighborhood1: function(x, y){
-      var n = 1;
-      var e = totalError(x, y, n);
+      var e = averageError(x, y, 1);
       var c = color(x, y);
       
-      c -= e;
+      c = Math.floor(c);
+      if(e <= 0){
+        c += 1;
+      }
       
-      return Math.round(c);
+      return c;
     },
     neighborhood2: function(x, y){
-      var n = 2;
-      var e = totalError(x, y, n);
+      var e = averageError(x, y, 2);
       var c = color(x, y);
       
-      c -= e;
+      c = Math.floor(c);
+      if(e <= 0){
+        c += 1;
+      }
       
-      return Math.round(c);
+      return c;
     },
     neighborhood3: function(x, y){
-      var n = 3;
-      var e = totalError(x, y, n);
+      var e = averageError(x, y, 3);
       var c = color(x, y);
       
-      c -= e;
+      c = Math.floor(c);
+      if(e <= 0){
+        c += 1;
+      }
       
-      return Math.round(c);
+      return c;
     },
     neighborhood4: function(x, y){
-      var n = 4;
-      var count = (2 * n + 1) * (2 * n + 1);
-      var e = totalError(x, y, n);
+      var e = averageError(x, y, 4);
       var c = color(x, y);
       
-      c -= e;
+      c = Math.floor(c);
+      if(e <= 0){
+        c += 1;
+      }
       
-      return Math.round(c);
+      return c;
     },
+    
     memory2: function(x, y){
-      var e = memoryTotalError(x, y, 2);
+      var e = memoryAverageError(x, y, 2);
       var c = color(x, y);
       
-      c -= e;
+      var finalColor = Math.floor(c);
+      if(e <= 0){
+        finalColor += 1;
+      }
       
-      var finalColor = Math.round(c);
-      set(x, y, finalColor - c); 
+      var finalColor = Math.round(c - e);
+      set(x, y, finalColor - c);
       return finalColor;
     },
     memory3: function(x, y){
-      var e = memoryTotalError(x, y, 3);
+      var e = memoryAverageError(x, y, 3);
       var c = color(x, y);
-      c -= e;
       
-      var finalColor = Math.round(c);
-      set(x, y, finalColor - c); 
+      var finalColor = Math.round(c - e);
+      set(x, y, finalColor - c);
       return finalColor;
     },
+    
     floyd: function(x, y){
       var oldC = get(x, y);
       var c = Math.round(oldC);
       var e = oldC - c;
-      update(x + 1, y, e, 7/16);
-      update(x - 1, y + 1, e, 3/16);
-      update(x, y + 1, e, 5/16);
-      update(x + 1, y + 1, e, 1/16);
+      
+      add(x + 1, y, e * 7/16);
+      add(x - 1, y + 1, e * 3/16);
+      add(x, y + 1, e * 5/16);
+      add(x + 1, y + 1, e * 1/16);
+      
       return c;
     },
-    jarvis: function(x, y){
+    jjn: function(x, y){
       var oldC = get(x, y);
       var c = Math.round(oldC);
       var e = oldC - c;
-      update(x + 1, y, e, 7/48);
-      update(x + 2, y, e, 5/48);
       
-      update(x - 2, y + 1, e, 3/48);
-      update(x - 1, y + 1, e, 5/48);
-      update(x, y + 1, e, 7/48);
-      update(x + 1, y + 1, e, 5/48);
-      update(x + 2, y + 1, e, 3/48);
-      
-      update(x - 2, y + 2, e, 1/48);
-      update(x - 1, y + 2, e, 3/48);
-      update(x, y + 2, e, 5/48);
-      update(x + 1, y + 2, e, 3/48);
-      update(x + 2, y + 2, e, 1/48);
+      add(x + 1, y, e * 7/48);
+      add(x + 2, y, e * 5/48);
+      add(x - 2, y + 1, e * 3/48);
+      add(x - 1, y + 1, e * 5/48);
+      add(x, y + 1, e * 7/48);
+      add(x + 1, y + 1, e * 5/48);
+      add(x + 2, y + 1, e * 3/48);
+      add(x - 2, y + 2, e * 1/48);
+      add(x - 1, y + 2, e * 3/48);
+      add(x, y + 2, e * 5/48);
+      add(x + 1, y + 2, e * 3/48);
+      add(x + 2, y + 2, e * 1/48);
       
       return c;
     }
@@ -336,13 +367,15 @@ $(function(){
   
   addCanvases(['round', 'truncate']);
   addCanvases(['random', 'biasedRandom']);
-  addCanvases(['noisy', 'noisier', 'noisiest']);
-  addCanvases(['lessNoisyBiasedRandom', 'noisyBiasedRandom']);
-  //addCanvases(['neighbors4', 'neighbors8']);
-  //addCanvases(['neighborhood2', 'neighborhood3']);
-  //addCanvases(['memory2', 'memory3']);
-  //addCanvases(['floyd', 'jarvis']);
+  addCanvases(['lessNoisy', 'noisy', 'noisier', 'noisiest']);
+  addCanvases(['noisyBiasedRandom', 'noisiestBiasedRandom']);
+  
+  // These are slow and ugly.
+  addCanvases(['neighbors4', 'neighbors8']);
+  addCanvases(['neighborhood2', 'neighborhood3']);
+  addCanvases(['memory2', 'memory3']);
+  
+  addCanvases(['floyd', 'jjn']);
   
   drawGradients();
-
 });
