@@ -6,6 +6,8 @@ I would muck about with them using JavaScript and `<canvas />`.
 
 Just for fun.
 
+If you want to read about it visit [Zach Snow - that's me](http://zachsnow.com/blog/2013/gradients-sans-wikipedia/).
+
 Trying it out
 -------------
 
